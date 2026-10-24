@@ -53,21 +53,32 @@ gdp_clean <- gdp_raw %>%
 
 # --- ESS ---
 ess_selected <- ess_raw %>%
-  select(cntry, stfgov, hinctnta, mbtru, agea) %>%
+  select(cntry, stfgov, hinctnta, mbtru, agea, polintr) %>%
   mutate(
     stfgov   = as.numeric(stfgov),
     hinctnta = as.numeric(hinctnta),
     mbtru    = as.numeric(mbtru),
-    agea     = as.numeric(agea)
+    agea     = as.numeric(agea),
+    polintr  = as.numeric(polintr)
   ) %>%
   filter(
     !is.na(cntry) &
       !is.na(stfgov)   & stfgov <= 10 &
       !is.na(hinctnta) & hinctnta <= 10 &
       !is.na(mbtru)    & mbtru <= 3 &
-      !is.na(agea)     & agea <= 110
+      !is.na(agea)     & agea <= 110 &
+      !is.na(polintr)  & polintr <= 4      # drops 7, 8, 9 (refusal / don't know / no answer)
   ) %>%
-  mutate(union_member = as.numeric(mbtru == 1))  # 1 = current member, 0 = otherwise
+  mutate(
+    union_member = as.numeric(mbtru == 1),
+    pol_interst  = factor(
+      polintr,
+      levels = 1:4,
+      labels = c("Very interested", "Quite interested",
+                 "Hardly interested", "Not at all interested")
+    )
+  )
+
 
 # --- Sujungimas: ESS + BVP + mokesčiai ---
 df_final <- ess_selected %>%

@@ -1,4 +1,3 @@
-
 library(dplyr)
 library(readr)
 library(nlme)
@@ -8,7 +7,6 @@ library(ggplot2)
 ## Duomenų paruošimas
 ess_raw <- read.csv("Duomenys/ESS10.csv", stringsAsFactors = FALSE)
 gdp_raw <- read.csv("Duomenys/GDP.csv", stringsAsFactors = FALSE)
-
 
 
 gdp_clean <- gdp_raw %>%
@@ -31,15 +29,23 @@ ess_selected <- ess_raw %>%
     agea         = as.numeric(agea),
     union_member = ifelse(mbtru == 1, 1, 0),
     # 1 = visai nesidomi, 4 = labai domisi politika
-    pol_interest = 5 - polintr
+    pol_interest_num = 5 - polintr
   ) %>%
   filter(
     !is.na(cntry) &
-      !is.na(stfgov)       & stfgov <= 10 &
-      !is.na(hinctnta)     & hinctnta <= 10 &
-      !is.na(mbtru)        & mbtru <= 3 &
-      !is.na(pol_interest) & pol_interest >= 1 & pol_interest <= 4 &
-      !is.na(agea)         & agea <= 110
+      !is.na(stfgov)           & stfgov <= 10 &
+      !is.na(hinctnta)         & hinctnta <= 10 &
+      !is.na(mbtru)            & mbtru <= 3 &
+      !is.na(pol_interest_num) & pol_interest_num >= 1 & pol_interest_num <= 4 &
+      !is.na(agea)             & agea <= 110
+  ) %>%
+  mutate(
+    # Binarinis faktorius: 1-2 (visai nesidomi / šiek tiek) = nesidomi,
+    # 3-4 (gana / labai domisi) = domisi; atskaitos lygis = "Nesidomi politika"
+    pol_interest = factor(
+      ifelse(pol_interest_num >= 3, "Domisi politika", "Nesidomi politika"),
+      levels = c("Nesidomi politika", "Domisi politika")
+    )
   )
 
 df_final <- ess_selected %>%
@@ -51,9 +57,6 @@ cat("Eilučių (respondentų) skaičius:", nrow(df_final), "\n")
 cat("Šalių (II lygio aibių) skaičius:", length(unique(df_final$cntry)), "\n\n")
 
 print(head(df_final))
-
-
-
 
 
 ## Aprašomoji statistika --------------
@@ -83,11 +86,11 @@ plot_data <- df_final %>%
 p_clean <- ggplot(plot_data, aes(x = reorder(country_label, mean_stfgov), y = mean_stfgov, fill = status)) +
   geom_col(width = 0.72) +
   geom_hline(yintercept = overall_mean, linetype = "dashed", color = "black", linewidth = 0.7) +
-  geom_text(aes(label = sprintf("%.2f", mean_stfgov)), 
+  geom_text(aes(label = sprintf("%.2f", mean_stfgov)),
             hjust = -0.15, size = 3.6, fontface = "bold", color = "gray15") +
   coord_flip() +
   scale_y_continuous(limits = c(0, 8.2), breaks = seq(0, 8, by = 2), expand = c(0, 0)) +
-  scale_fill_manual(values = c("Aukštesnis nei vidurkis" = "#2b7bba", 
+  scale_fill_manual(values = c("Aukštesnis nei vidurkis" = "#2b7bba",
                                "Žemesnis nei vidurkis" = "#d95f02")) +
   labs(
     title = "Pasitenkinimas nacionaline vyriausybe (0–10 balų)",
@@ -110,15 +113,14 @@ p_clean <- ggplot(plot_data, aes(x = reorder(country_label, mean_stfgov), y = me
 p_clean
 ggsave("stfgov_presentation.png", plot = p_clean, width = 6.2, height = 6.0, dpi = 300)
 
-## Pirmo lygmens koreliaciju matrica
-cor_vars <- df_final %>% select(pol_interest, hinctnta, union_member, agea)
+## Pirmo lygmens koreliaciju matrica (naudojama skaitinė pol_interest versija)
+cor_vars <- df_final %>% select(pol_interest_num, hinctnta, union_member, agea)
 cor_mat <- cor(cor_vars, use = "complete.obs")
 print(round(cor_mat, 3))
 
 # P-reikšmės koreliacijoms patikrinti
 cat("\nKoreliacijos testas tarp hinctnta ir union_member:\n")
 print(cor.test(df_final$hinctnta, df_final$union_member))
-
 
 
 ## Besąlyginis modelis
@@ -145,18 +147,12 @@ cat(sprintf("Modelio log-tikėtinumas (logLik)   : %.2f\n", logLik(m0)))
 cat(sprintf("Modelio Akaikės indeksas (AIC)     : %.2f\n", AIC(m0)))
 
 
-
-
-
-
-ctrl <- lmeControl(maxIter = 500, msMaxIter = 500, opt = "optim")
-
 ## Sudėtinis modelis
+## pol_interest (binarinis faktorius) tik fiksuotoje dalyje
 m1 <- lme(
   fixed   = stfgov ~ pol_interest + hinctnta + union_member + agea + gdp_pc_k,
-  random  = ~ (1 + pol_interest + hinctnta + union_member + agea) | cntry,
+  random  = ~ (1 + hinctnta + union_member + agea) | cntry,
   data    = df_final,
-  control = ctrl,
   method  = "ML"
 )
 AIC(m1)
@@ -164,9 +160,8 @@ AIC(m1)
 ## Modelis su sąveika
 m2 <- lme(
   fixed   = stfgov ~ pol_interest * gdp_pc_k + hinctnta + union_member + agea,
-  random  = ~ (1 + pol_interest + hinctnta + union_member + agea) | cntry,
+  random  = ~ 1 + hinctnta + union_member + agea | cntry,
   data    = df_final,
-  control = ctrl,
   method  = "ML"
 )
 
@@ -196,27 +191,23 @@ cat(sprintf("I lygmens liekamoji dispersija sigma^2: m0 = %.4f -> m2 = %.4f\n", 
 cat(sprintf("I lygmens dispersijos sąlyginis sumažėjimas : %.2f%%\n", r1_sq * 100))
 cat(sprintf("II lygmens dispersijos sąlyginis sumažėjimas: %.2f%%\n", r2_sq * 100))
 
-# Galutinė regresijos lygtis
-fix_eff <- fixef(m2)
-cat(sprintf(
-  "\nstfgov_hat = %.3f + %.3f*pol_interest + %.3f*gdp_pc_k + (%.4f)*pol_interest*gdp_pc_k + %.3f*hinctnta + (%.3f)*union_member + %.3f*agea\n\n",
-  fix_eff["(Intercept)"], fix_eff["pol_interest"], fix_eff["gdp_pc_k"],
-  fix_eff["pol_interest:gdp_pc_k"], fix_eff["hinctnta"],
-  fix_eff["union_member"], fix_eff["agea"]
-))
+# Fiksuotieji efektai (faktoriui sukuriama 1 dummy: pol_interestDomisi politika,
+# ir 1 sąveika: pol_interestDomisi politika:gdp_pc_k)
+cat("\nFiksuotieji efektai (m2):\n")
+print(round(summary(m2)$tTable, 4))
 
 # Q-Q grafikai
 par(mfrow = c(1, 2), mar = c(4.5, 4.5, 3, 1))
 
 # I lygmens liekanų Q-Q grafikas
-qqnorm(residuals(m2, type = "normalized"), 
-       main = "I lygmens liekanų Q-Q", 
+qqnorm(residuals(m2, type = "normalized"),
+       main = "I lygmens liekanų Q-Q",
        pch = 16, col = rgb(0.17, 0.48, 0.73, 0.2), cex = 0.8)
 qqline(residuals(m2, type = "normalized"), col = "firebrick", lwd = 2)
 
 # II lygmens atsitiktinių efektų (u_0) Q-Q grafikas
-qqnorm(ranef(m2)$'(Intercept)', 
-       main = "II lygmens efektų (u_0) Q-Q", 
+qqnorm(ranef(m2)$'(Intercept)',
+       main = "II lygmens efektų (u_0) Q-Q",
        pch = 16, col = "#2b7bba", cex = 1.2)
 qqline(ranef(m2)$'(Intercept)', col = "firebrick", lwd = 2)
 
