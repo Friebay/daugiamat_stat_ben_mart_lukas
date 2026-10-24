@@ -1,5 +1,3 @@
-library(WDI)
-
 
 library(dplyr)
 library(readr)
@@ -26,31 +24,24 @@ gdp_clean <- gdp_raw %>%
 ess_selected <- ess_raw %>%
   select(cntry, stfgov, hinctnta, mbtru, polintr, agea) %>%
   mutate(
-    stfgov   = as.numeric(stfgov),
-    hinctnta = as.numeric(hinctnta),
-    mbtru    = as.numeric(mbtru),
-    polintr  = as.numeric(polintr),
-    agea     = as.numeric(agea)
+    stfgov       = as.numeric(stfgov),
+    hinctnta     = as.numeric(hinctnta),
+    mbtru        = as.numeric(mbtru),
+    polintr      = as.numeric(polintr),
+    agea         = as.numeric(agea),
+    union_member = ifelse(mbtru == 1, 1, 0),
+    # 1 = visai nesidomi, 4 = labai domisi politika
+    pol_interest = 5 - polintr
   ) %>%
   filter(
     !is.na(cntry) &
-      !is.na(stfgov)   & stfgov <= 10 &
-      !is.na(hinctnta) & hinctnta <= 10 &
-      !is.na(mbtru)    & mbtru <= 3 &
-      !is.na(polintr)  & polintr <= 4 &
-      !is.na(agea)     & agea <= 110
-  ) %>%
-  mutate(
-    union_member = ifelse(mbtru == 1, 1, 0),
-    polintr_rev  = 5 - polintr          # 1 = not at all, 4 = very interested
-  ) %>%
-  group_by(cntry) %>%
-  mutate(polintr_mean = mean(polintr_rev)) %>%   # country-level mean (level 2)
-  ungroup()
+      !is.na(stfgov)       & stfgov <= 10 &
+      !is.na(hinctnta)     & hinctnta <= 10 &
+      !is.na(mbtru)        & mbtru <= 3 &
+      !is.na(pol_interest) & pol_interest >= 1 & pol_interest <= 4 &
+      !is.na(agea)         & agea <= 110
+  )
 
-
-
-# Join onto the full table (add alongside your other joins)
 df_final <- ess_selected %>%
   inner_join(gdp_clean, by = "cntry")
 
@@ -67,7 +58,7 @@ print(head(df_final))
 
 ## Aprašomoji statistika --------------
 vars_summary <- df_final %>%
-  select(stfgov, hinctnta, union_member, agea, gdp_pc_k) %>%
+  select(stfgov, pol_interest, hinctnta, union_member, agea, gdp_pc_k) %>%
   summary()
 print(vars_summary)
 
@@ -120,7 +111,7 @@ p_clean
 ggsave("stfgov_presentation.png", plot = p_clean, width = 6.2, height = 6.0, dpi = 300)
 
 ## Pirmo lygmens koreliaciju matrica
-cor_vars <- df_final %>% select(hinctnta, union_member, agea)
+cor_vars <- df_final %>% select(pol_interest, hinctnta, union_member, agea)
 cor_mat <- cor(cor_vars, use = "complete.obs")
 print(round(cor_mat, 3))
 
@@ -158,68 +149,75 @@ cat(sprintf("Modelio Akaikės indeksas (AIC)     : %.2f\n", AIC(m0)))
 
 
 
+ctrl <- lmeControl(maxIter = 500, msMaxIter = 500, opt = "optim")
+
 ## Sudėtinis modelis
 m1 <- lme(
-  fixed  = stfgov ~ hinctnta + union_member + agea + gdp_pc_k + polintr_mean,
-  random = ~ (1 + hinctnta + union_member + agea ) | cntry,
-  data   = df_final,
-  method = "ML"
+  fixed   = stfgov ~ pol_interest + hinctnta + union_member + agea + gdp_pc_k,
+  random  = ~ (1 + pol_interest + hinctnta + union_member + agea) | cntry,
+  data    = df_final,
+  control = ctrl,
+  method  = "ML"
 )
 AIC(m1)
 
-## atsitiktiniai efektai visoms betoms. su sąveika
+## Modelis su sąveika
 m2 <- lme(
-  fixed  = stfgov ~ (hinctnta + agea)*polintr_mean + union_member + gdp_pc_k + polintr_mean,
-  random = ~ (1 + hinctnta + union_member + agea ) | cntry,
-  data   = df_final,
-  method = "ML"
+  fixed   = stfgov ~ pol_interest * gdp_pc_k + hinctnta + union_member + agea,
+  random  = ~ (1 + pol_interest + hinctnta + union_member + agea) | cntry,
+  data    = df_final,
+  control = ctrl,
+  method  = "ML"
 )
 
 AIC(m2)
 summary(m2)
 
-## Dispersijos ir kokybės rodiklių palyginimas
-var_comp_m1 <- VarCorr(m1)
-tau00_sq_m1 <- as.numeric(var_comp_m1["(Intercept)", "Variance"])
-sigma_sq_m1 <- as.numeric(var_comp_m1["Residual", "Variance"])
-
-delta_aic <- AIC(m1) - AIC(m0)
-r1_sq     <- (sigma_sq_m0 - sigma_sq_m1) / sigma_sq_m0
-r2_sq     <- (tau00_sq - tau00_sq_m1) / tau00_sq
-
-# AIC pokytis
+## Modelių palyginimas
+cat("\n=== Sudėtinis vs Besąlyginis ===\n")
 print(anova(m0, m1))
 
-cat(sprintf("Besąlyginio modelio AIC: %.2f\n", AIC(m0)))
-cat(sprintf("Sudėtinio modelio AIC:   %.2f\n", AIC(m1)))
+cat("\n=== Sąveikos reikšmingumas (m1 vs m2) ===\n")
+print(anova(m1, m2))
+
+## Dispersijos ir kokybės rodiklių palyginimas (m0 -> m2)
+var_comp_m2 <- VarCorr(m2)
+tau00_sq_m2 <- as.numeric(var_comp_m2["(Intercept)", "Variance"])
+sigma_sq_m2 <- as.numeric(var_comp_m2["Residual", "Variance"])
+
+delta_aic <- AIC(m2) - AIC(m0)
+r1_sq     <- (sigma_sq_m0 - sigma_sq_m2) / sigma_sq_m0
+r2_sq     <- (tau00_sq - tau00_sq_m2) / tau00_sq
+
+cat(sprintf("\nBesąlyginio modelio AIC: %.2f\n", AIC(m0)))
+cat(sprintf("Galutinio modelio AIC:   %.2f\n", AIC(m2)))
 cat(sprintf("AIC sumažėjimas:         %.2f\n", abs(delta_aic)))
-cat(sprintf("I lygmens liekamoji dispersija sigma^2: m0 = %.4f -> m1 = %.4f\n", sigma_sq_m0, sigma_sq_m1))
-cat(sprintf("I lygmens dispersijos sąlyginis sumažėjimas: %.2f%%\n", r1_sq * 100))
+cat(sprintf("I lygmens liekamoji dispersija sigma^2: m0 = %.4f -> m2 = %.4f\n", sigma_sq_m0, sigma_sq_m2))
+cat(sprintf("I lygmens dispersijos sąlyginis sumažėjimas : %.2f%%\n", r1_sq * 100))
 cat(sprintf("II lygmens dispersijos sąlyginis sumažėjimas: %.2f%%\n", r2_sq * 100))
 
-
-
-
-
-
-# Lygtis
-fix_eff <- fixef(m1)
-cat(sprintf("stfgov_hat = %.3f + %.3f*hinctnta + (%.3f)*union_member + %.3f*agea + %.3f*gdp_pc_k\n\n",
-            fix_eff["(Intercept)"], fix_eff["hinctnta"], fix_eff["union_member"], fix_eff["agea"], fix_eff["gdp_pc_k"]))
+# Galutinė regresijos lygtis
+fix_eff <- fixef(m2)
+cat(sprintf(
+  "\nstfgov_hat = %.3f + %.3f*pol_interest + %.3f*gdp_pc_k + (%.4f)*pol_interest*gdp_pc_k + %.3f*hinctnta + (%.3f)*union_member + %.3f*agea\n\n",
+  fix_eff["(Intercept)"], fix_eff["pol_interest"], fix_eff["gdp_pc_k"],
+  fix_eff["pol_interest:gdp_pc_k"], fix_eff["hinctnta"],
+  fix_eff["union_member"], fix_eff["agea"]
+))
 
 # Q-Q grafikai
 par(mfrow = c(1, 2), mar = c(4.5, 4.5, 3, 1))
 
 # I lygmens liekanų Q-Q grafikas
-qqnorm(residuals(m1, type = "normalized"), 
+qqnorm(residuals(m2, type = "normalized"), 
        main = "I lygmens liekanų Q-Q", 
        pch = 16, col = rgb(0.17, 0.48, 0.73, 0.2), cex = 0.8)
-qqline(residuals(m1, type = "normalized"), col = "firebrick", lwd = 2)
+qqline(residuals(m2, type = "normalized"), col = "firebrick", lwd = 2)
 
 # II lygmens atsitiktinių efektų (u_0) Q-Q grafikas
-qqnorm(ranef(m1)$'(Intercept)', 
+qqnorm(ranef(m2)$'(Intercept)', 
        main = "II lygmens efektų (u_0) Q-Q", 
        pch = 16, col = "#2b7bba", cex = 1.2)
-qqline(ranef(m1)$'(Intercept)', col = "firebrick", lwd = 2)
+qqline(ranef(m2)$'(Intercept)', col = "firebrick", lwd = 2)
 
 par(mfrow = c(1, 1))
