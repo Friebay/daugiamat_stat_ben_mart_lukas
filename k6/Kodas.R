@@ -1,3 +1,6 @@
+library(WDI)
+
+
 library(dplyr)
 library(readr)
 library(nlme)
@@ -21,11 +24,12 @@ gdp_clean <- gdp_raw %>%
 
 
 ess_selected <- ess_raw %>%
-  select(cntry, stfgov, hinctnta, mbtru, agea) %>%
+  select(cntry, stfgov, hinctnta, mbtru, polintr, agea) %>%
   mutate(
     stfgov   = as.numeric(stfgov),
     hinctnta = as.numeric(hinctnta),
     mbtru    = as.numeric(mbtru),
+    polintr  = as.numeric(polintr),
     agea     = as.numeric(agea)
   ) %>%
   filter(
@@ -33,20 +37,32 @@ ess_selected <- ess_raw %>%
       !is.na(stfgov)   & stfgov <= 10 &
       !is.na(hinctnta) & hinctnta <= 10 &
       !is.na(mbtru)    & mbtru <= 3 &
+      !is.na(polintr)  & polintr <= 4 &
       !is.na(agea)     & agea <= 110
   ) %>%
   mutate(
-    union_member = ifelse(mbtru == 1, 1, 0)
-  )
+    union_member = ifelse(mbtru == 1, 1, 0),
+    polintr_rev  = 5 - polintr          # 1 = not at all, 4 = very interested
+  ) %>%
+  group_by(cntry) %>%
+  mutate(polintr_mean = mean(polintr_rev)) %>%   # country-level mean (level 2)
+  ungroup()
 
 
+
+# Join onto the full table (add alongside your other joins)
 df_final <- ess_selected %>%
   inner_join(gdp_clean, by = "cntry")
+
+df_final
 
 cat("Eilučių (respondentų) skaičius:", nrow(df_final), "\n")
 cat("Šalių (II lygio aibių) skaičius:", length(unique(df_final$cntry)), "\n\n")
 
 print(head(df_final))
+
+
+
 
 
 ## Aprašomoji statistika --------------
@@ -139,15 +155,28 @@ cat(sprintf("Modelio Akaikės indeksas (AIC)     : %.2f\n", AIC(m0)))
 
 
 
+
+
+
 ## Sudėtinis modelis
 m1 <- lme(
-  fixed  = stfgov ~ hinctnta + union_member + agea + gdp_pc_k,
-  random = ~ 1 | cntry,
+  fixed  = stfgov ~ hinctnta + union_member + agea + gdp_pc_k + polintr_mean,
+  random = ~ (1 + hinctnta + union_member + agea ) | cntry,
+  data   = df_final,
+  method = "ML"
+)
+AIC(m1)
+
+## atsitiktiniai efektai visoms betoms. su sąveika
+m2 <- lme(
+  fixed  = stfgov ~ (hinctnta + agea)*polintr_mean + union_member + gdp_pc_k + polintr_mean,
+  random = ~ (1 + hinctnta + union_member + agea ) | cntry,
   data   = df_final,
   method = "ML"
 )
 
-summary(m1)
+AIC(m2)
+summary(m2)
 
 ## Dispersijos ir kokybės rodiklių palyginimas
 var_comp_m1 <- VarCorr(m1)
@@ -167,6 +196,11 @@ cat(sprintf("AIC sumažėjimas:         %.2f\n", abs(delta_aic)))
 cat(sprintf("I lygmens liekamoji dispersija sigma^2: m0 = %.4f -> m1 = %.4f\n", sigma_sq_m0, sigma_sq_m1))
 cat(sprintf("I lygmens dispersijos sąlyginis sumažėjimas: %.2f%%\n", r1_sq * 100))
 cat(sprintf("II lygmens dispersijos sąlyginis sumažėjimas: %.2f%%\n", r2_sq * 100))
+
+
+
+
+
 
 # Lygtis
 fix_eff <- fixef(m1)

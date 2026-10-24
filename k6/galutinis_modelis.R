@@ -3,10 +3,44 @@ library(readr)
 library(nlme)
 library(ggplot2)
 
+# install.packages("eurostat")
+library(eurostat)
+
 ## Duomenų paruošimas
 ess_raw <- read.csv("Duomenys/ESS10.csv", stringsAsFactors = FALSE)
 gdp_raw <- read.csv("Duomenys/GDP.csv", stringsAsFactors = FALSE)
 
+countries <- c(
+  "BE", "BG", "CZ", "DK", "DE", "EE", "IE", "EL", "ES", "FR",
+  "HR", "IT", "CY", "LV", "LT", "LU", "HU", "MT", "NL", "AT",
+  "PL", "PT", "RO", "SI", "SK", "FI", "SE", "IS", "NO", "CH"
+)
+
+tax_gdp <- get_eurostat(
+  id = "gov_10a_taxag",
+  filters = list(
+    freq = "A",
+    unit = "PC_GDP",
+    sector = "S13",
+    na_item = "D2_D5_D91_D61_M_D995",
+    geo = countries,
+    TIME_PERIOD = "2021"
+  ),
+  time_format = "raw",
+  type = "code"
+)
+
+# --- Mokesčiai (% BVP) ---
+tax_clean <- tax_gdp %>%
+  select(cntry = geo, tax_pct_gdp = values) %>%   # in older eurostat versions the column is `values`; newer: `values` too
+  mutate(
+    tax_pct_gdp = as.numeric(tax_pct_gdp),
+    cntry = ifelse(cntry == "EL", "GR", cntry)    # same recode as GDP, to match ESS
+  ) %>%
+  filter(!is.na(cntry) & !is.na(tax_pct_gdp)) %>%
+  distinct(cntry, .keep_all = TRUE)
+
+# --- BVP ---
 gdp_clean <- gdp_raw %>%
   select(cntry = geo, gdp_pc = OBS_VALUE) %>%
   mutate(
@@ -14,8 +48,10 @@ gdp_clean <- gdp_raw %>%
     gdp_pc_k = gdp_pc / 1000, # BVP tūkstančiais EUR
     cntry = ifelse(cntry == "EL", "GR", cntry)
   ) %>%
-  filter(!is.na(cntry) & !is.na(gdp_pc))
+  filter(!is.na(cntry) & !is.na(gdp_pc)) %>%
+  distinct(cntry, .keep_all = TRUE)
 
+# --- ESS ---
 ess_selected <- ess_raw %>%
   select(cntry, stfgov, hinctnta, mbtru, agea) %>%
   mutate(
@@ -33,8 +69,15 @@ ess_selected <- ess_raw %>%
   ) %>%
   mutate(union_member = as.numeric(mbtru == 1))  # 1 = current member, 0 = otherwise
 
+# --- Sujungimas: ESS + BVP + mokesčiai ---
 df_final <- ess_selected %>%
-  inner_join(gdp_clean, by = "cntry")
+  inner_join(gdp_clean, by = "cntry") %>%
+  inner_join(tax_clean, by = "cntry")
+
+# Patikrinimas
+unique(df_final$cntry)
+setdiff(unique(ess_selected$cntry), unique(df_final$cntry))  # ESS countries dropped by the joins
+summary(df_final)
 
 cat("Eilučių (respondentų) skaičius:", nrow(df_final), "\n")
 cat("Šalių (II lygio aibių) skaičius:", length(unique(df_final$cntry)), "\n\n")
