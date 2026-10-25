@@ -2,6 +2,7 @@ library(dplyr)
 library(readr)
 library(nlme)
 library(ggplot2)
+library(latex2exp)
 
 
 ## Duomenų paruošimas
@@ -82,36 +83,36 @@ plot_data <- df_final %>%
     country_label = country_names[cntry],
     status = ifelse(mean_stfgov >= overall_mean, "Aukštesnis nei vidurkis", "Žemesnis nei vidurkis")
   )
-
-p_clean <- ggplot(plot_data, aes(x = reorder(country_label, mean_stfgov), y = mean_stfgov, fill = status)) +
-  geom_col(width = 0.72) +
-  geom_hline(yintercept = overall_mean, linetype = "dashed", color = "black", linewidth = 0.7) +
-  geom_text(aes(label = sprintf("%.2f", mean_stfgov)),
-            hjust = -0.15, size = 3.6, fontface = "bold", color = "gray15") +
-  coord_flip() +
-  scale_y_continuous(limits = c(0, 8.2), breaks = seq(0, 8, by = 2), expand = c(0, 0)) +
-  scale_fill_manual(values = c("Aukštesnis nei vidurkis" = "#2b7bba",
-                               "Žemesnis nei vidurkis" = "#d95f02")) +
-  labs(
-    title = "Pasitenkinimas nacionaline vyriausybe (0–10 balų)",
-    subtitle = paste0("Punktyrinė linija žymi bendrą imties vidurkį (", round(overall_mean, 2), ")"),
-    x = NULL,
-    y = "Vidutinis balas",
-    fill = NULL
-  ) +
-  theme_minimal(base_size = 12) +
-  theme(
-    legend.position = "top",
-    legend.text = element_text(size = 10, face = "bold"),
-    axis.text.y = element_text(size = 10, face = "bold", color = "black"),
-    axis.text.x = element_text(size = 10),
-    panel.grid.major.y = element_blank(),
-    panel.grid.minor = element_blank(),
-    plot.title = element_text(face = "bold", size = 13),
-    plot.subtitle = element_text(size = 10, color = "gray30")
-  )
-p_clean
-ggsave("stfgov_presentation.png", plot = p_clean, width = 6.2, height = 6.0, dpi = 300)
+ 
+# p_clean <- ggplot(plot_data, aes(x = reorder(country_label, mean_stfgov), y = mean_stfgov, fill = status)) +
+#   geom_col(width = 0.72) +
+#   geom_hline(yintercept = overall_mean, linetype = "dashed", color = "black", linewidth = 0.7) +
+#   geom_text(aes(label = sprintf("%.2f", mean_stfgov)),
+#             hjust = -0.15, size = 3.6, fontface = "bold", color = "gray15") +
+#   coord_flip() +
+#   scale_y_continuous(limits = c(0, 8.2), breaks = seq(0, 8, by = 2), expand = c(0, 0)) +
+#   scale_fill_manual(values = c("Aukštesnis nei vidurkis" = "#2b7bba",
+#                                "Žemesnis nei vidurkis" = "#d95f02")) +
+#   labs(
+#     title = "Pasitenkinimas nacionaline vyriausybe (0–10 balų)",
+#     subtitle = paste0("Punktyrinė linija žymi bendrą imties vidurkį (", round(overall_mean, 2), ")"),
+#     x = NULL,
+#     y = "Vidutinis balas",
+#     fill = NULL
+#   ) +
+#   theme_minimal(base_size = 12) +
+#   theme(
+#     legend.position = "top",
+#     legend.text = element_text(size = 10, face = "bold"),
+#     axis.text.y = element_text(size = 10, face = "bold", color = "black"),
+#     axis.text.x = element_text(size = 10),
+#     panel.grid.major.y = element_blank(),
+#     panel.grid.minor = element_blank(),
+#     plot.title = element_text(face = "bold", size = 13),
+#     plot.subtitle = element_text(size = 10, color = "gray30")
+#   )
+# p_clean
+# ggsave("stfgov_presentation.png", plot = p_clean, width = 6.2, height = 6.0, dpi = 300)
 
 ## Pirmo lygmens koreliaciju matrica (naudojama skaitinė pol_interest versija)
 cor_vars <- df_final %>% select(pol_interest_num, hinctnta, union_member, agea)
@@ -151,7 +152,7 @@ cat(sprintf("Modelio Akaikės indeksas (AIC)     : %.2f\n", AIC(m0)))
 ## pol_interest (binarinis faktorius) tik fiksuotoje dalyje
 m1 <- lme(
   fixed   = stfgov ~ pol_interest + hinctnta + union_member + agea + gdp_pc_k,
-  random  = ~ (1 + hinctnta + union_member + agea) | cntry,
+  random  = ~ (1 + hinctnta + union_member + agea + pol_interest) | cntry,
   data    = df_final,
   method  = "ML"
 )
@@ -159,8 +160,8 @@ AIC(m1)
 
 ## Modelis su sąveika
 m2 <- lme(
-  fixed   = stfgov ~ pol_interest * gdp_pc_k + hinctnta + union_member + agea,
-  random  = ~ 1 + hinctnta + union_member + agea | cntry,
+  fixed   = stfgov ~ pol_interest * gdp_pc_k + hinctnta + agea,
+  random  = ~ 1 + hinctnta + agea + pol_interest | cntry,
   data    = df_final,
   method  = "ML"
 )
@@ -232,11 +233,9 @@ qqline(residuals(m2, type = "normalized"), col = "firebrick", lwd = 2)
 # II lygmens atsitiktinių efektų (u_0) Q-Q grafikai
 re <- ranef(m2)   # random effects by country
 
-# Titles in the same order as the columns of ranef(m2)
-titles <- c("$u_0$ kvantilių grafikas",
-            "$u_1$ kvantilių grafikas",
-            "$u_2$ kvantilių grafikas",
-            "$u_3$ kvantilių grafikas")
+# A list is needed because TeX() returns expression objects
+titles <- lapply(seq_along(re) - 1, function(k)
+  TeX(sprintf("$u_{%d}$ kvantilių grafikas", k)))
 
 op <- par(mfrow = c(2, 2),
           mar = c(5, 5, 4, 1.5) + 0.1)   # bottom, left, top, right
@@ -248,7 +247,7 @@ for (i in seq_along(re)) {
          xlab = "Teoriniai kvantiliai",
          ylab = "Imties kvantiliai",
          pch = 16, col = "#2b7bba", cex = 1.4,
-         cex.main = 1.3, cex.lab = 1.2, cex.axis = 1.0)
+         cex.main = 1.5, cex.lab = 1.2, cex.axis = 1.0)
   qqline(re[[i]], col = "firebrick", lwd = 2)
 }
 
