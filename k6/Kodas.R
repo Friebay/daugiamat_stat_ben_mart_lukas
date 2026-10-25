@@ -168,6 +168,24 @@ m2 <- lme(
 AIC(m2)
 summary(m2)
 
+
+
+
+## Modelis su sąveika, be union_member
+m3 <- lme(
+  fixed   = stfgov ~ pol_interest * gdp_pc_k + hinctnta + agea,
+  random  = ~ 1 + hinctnta + agea | cntry,
+  data    = df_final,
+  method  = "ML"
+)
+
+AIC(m3)
+summary(m3)
+
+# m3 neturi AIC suprasteja iki m1 - union_member neisimti
+
+
+
 ## Modelių palyginimas
 cat("\n=== Sudėtinis vs Besąlyginis ===\n")
 print(anova(m0, m1))
@@ -197,18 +215,43 @@ cat("\nFiksuotieji efektai (m2):\n")
 print(round(summary(m2)$tTable, 4))
 
 # Q-Q grafikai
-par(mfrow = c(1, 2), mar = c(4.5, 4.5, 3, 1))
+par(mar = c(5.5, 5.5, 4, 2) + 0.1)
 
 # I lygmens liekanų Q-Q grafikas
 qqnorm(residuals(m2, type = "normalized"),
-       main = "I lygmens liekanų Q-Q",
-       pch = 16, col = rgb(0.17, 0.48, 0.73, 0.2), cex = 0.8)
+       main = "I lygmens liekanų kvantilių grafikas",
+       xlab = "Teoriniai kvantiliai",
+       ylab = "Imties kvantiliai",
+       pch = 16, col = rgb(0.17, 0.48, 0.73, 0.2), cex = 0.8,
+       cex.main = 1.6,
+       cex.lab  = 1.5,
+       cex.axis = 1.1)
 qqline(residuals(m2, type = "normalized"), col = "firebrick", lwd = 2)
 
-# II lygmens atsitiktinių efektų (u_0) Q-Q grafikas
-qqnorm(ranef(m2)$'(Intercept)',
-       main = "II lygmens efektų (u_0) Q-Q",
-       pch = 16, col = "#2b7bba", cex = 1.2)
-qqline(ranef(m2)$'(Intercept)', col = "firebrick", lwd = 2)
+
+# II lygmens atsitiktinių efektų (u_0) Q-Q grafikai
+re <- ranef(m2)   # random effects by country
+
+# Titles in the same order as the columns of ranef(m2)
+titles <- c("$u_0$ kvantilių grafikas",
+            "$u_1$ kvantilių grafikas",
+            "$u_2$ kvantilių grafikas",
+            "$u_3$ kvantilių grafikas")
+
+op <- par(mfrow = c(2, 2),
+          mar = c(5, 5, 4, 1.5) + 0.1)   # bottom, left, top, right
+
+re <- ranef(m2)
+for (i in seq_along(re)) {
+  qqnorm(re[[i]],
+         main = titles[i],
+         xlab = "Teoriniai kvantiliai",
+         ylab = "Imties kvantiliai",
+         pch = 16, col = "#2b7bba", cex = 1.4,
+         cex.main = 1.3, cex.lab = 1.2, cex.axis = 1.0)
+  qqline(re[[i]], col = "firebrick", lwd = 2)
+}
+
+par(op)
 
 par(mfrow = c(1, 1))
