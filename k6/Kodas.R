@@ -151,8 +151,8 @@ cat(sprintf("Modelio Akaikės indeksas (AIC)     : %.2f\n", AIC(m0)))
 ## Sudėtinis modelis
 ## pol_interest (binarinis faktorius) tik fiksuotoje dalyje
 m1 <- lme(
-  fixed   = stfgov ~ pol_interest + hinctnta + union_member + agea + gdp_pc_k,
-  random  = ~ (1 + hinctnta + union_member + agea + pol_interest) | cntry,
+  fixed   = stfgov ~ pol_interest + hinctnta + agea + gdp_pc_k,
+  random  = ~ (1 + hinctnta + agea + pol_interest) | cntry,
   data    = df_final,
   method  = "ML"
 )
@@ -160,8 +160,8 @@ AIC(m1)
 
 ## Modelis su sąveika
 m2 <- lme(
-  fixed   = stfgov ~ pol_interest * gdp_pc_k + hinctnta + union_member + agea,
-  random  = ~ 1 + hinctnta + union_member + agea + pol_interest | cntry,
+  fixed   = stfgov ~ pol_interest * gdp_pc_k + hinctnta + agea,
+  random  = ~ 1 + hinctnta + agea + pol_interest | cntry,
   data    = df_final,
   method  = "ML"
 )
