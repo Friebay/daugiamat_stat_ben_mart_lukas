@@ -160,8 +160,8 @@ AIC(m1)
 
 ## Modelis su sąveika
 m2 <- lme(
-  fixed   = stfgov ~ pol_interest * gdp_pc_k + hinctnta + agea,
-  random  = ~ 1 + hinctnta + agea + pol_interest | cntry,
+  fixed   = stfgov ~ pol_interest * gdp_pc_k + hinctnta + union_member + agea,
+  random  = ~ 1 + hinctnta + union_member + agea + pol_interest | cntry,
   data    = df_final,
   method  = "ML"
 )
@@ -169,7 +169,7 @@ m2 <- lme(
 AIC(m2)
 summary(m2)
 
-
+VarCorr(m2)
 
 
 ## Modelis su sąveika, be union_member
